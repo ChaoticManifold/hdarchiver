@@ -1,10 +1,11 @@
 The Dar specification.
+All bytes are unsigned unless otherwise specified.
 
 [Header block]
 ..Magic (ID) = 'DAR' //Used to identify the file. 3 chars (UTF-8)
-..MajorVersion = 4 //If this fails a version check, reject the file. 1 byte
+..MajorVersion = 6 //If this fails a version check, reject the file. 1 byte
 ..MinorVersion = 0 //If this fails a version check, warn the user. 1 byte
-..NodeCount = [X] //Number of nodes. 8 bytes
+..NodeCount = [X] //Number of nodes. 8 bytes.
 ..Checksum = [X] //Checksum of all the header data, used to verify the integrity of the header. 4 bytes.
 
 [Data Block]
