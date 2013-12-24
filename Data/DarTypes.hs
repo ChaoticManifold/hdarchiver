@@ -49,6 +49,10 @@ data DataNode = DataN { identifyDNode :: BC.ByteString
 -- A standard DAR file for comparison perposes.
 defaultDar = Dar (DarH (BC.pack "DAR") 6 0 0 0) (DataH (BC.pack ".data") []) 
 
+--
+-- **************************************************
+-- Functions for getting a DAR file and its DataNodes from a ByteString.
+
 -- Change second return type so user doen't have to know about DataNodes.
 getDARFile :: BC.ByteString -> Either String [DataNode]
 getDARFile bs = 
@@ -60,7 +64,7 @@ getDARFile bs =
                                         ++ " bytes left to consume.")
     Right (_, _, val) -> Right $ dataNodes . dataDAR $ val
 
--- Check the header and .data here?
+
 getDARFile' :: Get DarFile
 getDARFile' = do
   header <- getDARHeader
@@ -80,7 +84,6 @@ getDARHeader = do
     
   (DarH dar maV miV) <$> getWord64le <*> getWord32le
 
--- Check that the dataHeader ".data" exists.
 getDATAHeader :: Word64 -> Get DataHeader
 getDATAHeader nodeNum = do
   let dataName = dataDAR defaultDar
@@ -102,8 +105,15 @@ getDATANode = do
   nData <- getLazyByteString . fromIntegral =<< getWord64le
   return $ DataN nName nData
 
-putDARFile :: [DataNode] -> Put
-putDARFile nodes = do
+--
+-- **************************************************
+-- Functions for turning DataNodes into ByteStrings.
+
+putDARFile :: [DataNode] -> BC.ByteString
+putDARFile = runPut . putDARFile' 
+
+putDARFile' :: [DataNode] -> Put
+putDARFile' nodes = do
   putDARHeader . fromIntegral . length $ nodes
   putDATAHeader nodes
 

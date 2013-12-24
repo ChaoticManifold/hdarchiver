@@ -19,7 +19,7 @@ main = do
   
   case action of
     "help" -> putStrLn helpText
-    "test" -> B.writeFile (concat args) $ runPut $ putDARFile testDNodes
+    "test" -> B.writeFile (concat args) $ putDARFile testDNodes
     "read" -> do
 
       darfile <- B.readFile $ concat args
