@@ -6,11 +6,10 @@
 -- Add the index
 -- Get single named DataNode
 -- Return DataNodes as a map
--- Or maybe make another typeclass for this.
+-- Or maybe make another typeclass for this
 -- Append single DataNode
--- DataNode should have size parameters
+-- DataNode should have size parameters for performace reasons
 -- Make things strict where nessesary
--- Add error checks when getting DAR files
 
 module Data.DarTypes
        (
@@ -46,6 +45,9 @@ data DataHeader = DataH { identifyDATA :: BC.ByteString --Should be ".data"
 data DataNode = DataN { identifyDNode :: BC.ByteString
                       , contentDNode :: BC.ByteString
                       } deriving (Show)
+
+-- A standard DAR file for comparison perposes.
+defaultDar = Dar (DarH (BC.pack "DAR") 6 0 0 0) (DataH (BC.pack ".data") []) 
 
 -- Change second return type so user doen't have to know about DataNodes.
 getDARFile :: BC.ByteString -> Either String [DataNode]
@@ -93,25 +95,12 @@ getDATAHeader nodeNum = do
                                    else do
                                      node <- getDATANode
                                      return $ Just $ (node, x - 1)) nodeNum
-  
+
 getDATANode :: Get DataNode
 getDATANode = do  
-  nName <- getWord32le >>= getLazyByteString . fromIntegral
-  nData <- getWord64le >>= getLazyByteString . fromIntegral 
+  nName <- getLazyByteString . fromIntegral =<< getWord32le
+  nData <- getLazyByteString . fromIntegral =<< getWord64le
   return $ DataN nName nData
-
-defaultDar = Dar defaultDarHeader defaultDataHeader 
-
-defaultDarHeader = DarH { identifyDAR = BC.pack "DAR"
-                        , majorV = 6
-                        , minorV = 0
-                        , nodeCount = 0
-                        , checksum = 0
-                        }
-
-defaultDataHeader = DataH { identifyDATA = BC.pack ".data"
-                          , dataNodes = []
-                          }
 
 putDARFile :: [DataNode] -> Put
 putDARFile nodes = do
@@ -129,8 +118,7 @@ putDARHeader nodeN = do
 
 putDATAHeader :: [DataNode] -> Put
 putDATAHeader nodes = do
-  let headerD = dataDAR defaultDar
-  putLazyByteString $ identifyDATA headerD
+  putLazyByteString . identifyDATA $ dataDAR defaultDar
   mapM_ putDATANode nodes
 
 putDATANode :: DataNode -> Put
@@ -139,4 +127,3 @@ putDATANode node = do
   putLazyByteString $ identifyDNode node
   putWord64le . fromIntegral . BC.length $ contentDNode node
   putLazyByteString $ contentDNode node
- 
