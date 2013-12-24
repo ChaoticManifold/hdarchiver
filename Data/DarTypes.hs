@@ -15,11 +15,12 @@
 module Data.DarTypes
        (
          DarFile (..), DarHeader (..), DataHeader (..), DataNode (..),
-         getDARFile, putDARFile, checkDarHeader
+         getDARFile, putDARFile
        ) where
                 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Loops (unfoldrM)
 import Data.Binary.Get
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy.Char8 as BC
@@ -46,24 +47,52 @@ data DataNode = DataN { identifyDNode :: BC.ByteString
                       , contentDNode :: BC.ByteString
                       } deriving (Show)
 
+-- Change second return type so user doen't have to know about DataNodes.
+getDARFile :: BC.ByteString -> Either String [DataNode]
+getDARFile bs = 
+  case (runGetOrFail getDARFile' bs) of
+    Left (leftBs, pos, msg) -> Left $ msg ++ " at " ++ (show pos) ++ " bytes"
+                               ++ (if BC.null leftBs
+                                   then " and no more bytes to consume."
+                                   else " and " ++ (show $ BC.length leftBs)
+                                        ++ " bytes left to consume.")
+    Right (_, _, val) -> Right $ dataNodes . dataDAR $ val
+
 -- Check the header and .data here?
-getDARFile :: Get DarFile
-getDARFile = do
+getDARFile' :: Get DarFile
+getDARFile' = do
   header <- getDARHeader
   (Dar header) <$> (getDATAHeader $ nodeCount header)  
 
 getDARHeader :: Get DarHeader
-getDARHeader = DarH <$> getLazyByteString 3 <*> getWord8 <*> getWord8
-               <*> getWord64le <*> getWord32le
+getDARHeader = do
+  let header = headerDAR defaultDar
+
+  dar <- getLazyByteString 3
+  when (dar /= (identifyDAR header))
+    (fail "Not a DAR file")
+
+  (maV, miV) <- (,) <$> getWord8 <*> getWord8
+  when (maV /= majorV header || miV /= minorV header)
+    (fail "DAR file version incompatible")
+    
+  (DarH dar maV miV) <$> getWord64le <*> getWord32le
 
 -- Check that the dataHeader ".data" exists.
 getDATAHeader :: Word64 -> Get DataHeader
-getDATAHeader nodeN = DataH <$> getLazyByteString 5 <*> (sequence $ getDATANodes nodeN)
+getDATAHeader nodeNum = do
+  let dataName = dataDAR defaultDar
+  
+  name <- getLazyByteString 5
+  when (name /= identifyDATA dataName)
+    (fail "No data header found in DAR file")
 
-getDATANodes :: Word64 -> [Get DataNode]
-getDATANodes nodeN = case nodeN == 0 of
-  True -> []
-  False -> getDATANode : (getDATANodes $ nodeN - 1)
+  -- The unfoldrM calls getDATANode nodeNum times. Getting all the DataNodes.
+  (DataH name) <$> unfoldrM (\x -> if x == 0 
+                                   then return Nothing
+                                   else do
+                                     node <- getDATANode
+                                     return $ Just $ (node, x - 1)) nodeNum
   
 getDATANode :: Get DataNode
 getDATANode = do  
@@ -76,12 +105,12 @@ defaultDar = Dar defaultDarHeader defaultDataHeader
 defaultDarHeader = DarH { identifyDAR = BC.pack "DAR"
                         , majorV = 6
                         , minorV = 0
-                        -- , nodeCount = set by depending on the input
+                        , nodeCount = 0
                         , checksum = 0
                         }
 
 defaultDataHeader = DataH { identifyDATA = BC.pack ".data"
-                          -- , dataNodes = 
+                          , dataNodes = []
                           }
 
 putDARFile :: [DataNode] -> Put
@@ -111,7 +140,3 @@ putDATANode node = do
   putWord64le . fromIntegral . BC.length $ contentDNode node
   putLazyByteString $ contentDNode node
  
-checkDarHeader :: DarHeader -> Bool
-checkDarHeader dh = identifyDAR dh == identifyDAR defaultDarHeader
-                    && majorV dh == majorV defaultDarHeader
-                    && minorV dh == minorV defaultDarHeader
