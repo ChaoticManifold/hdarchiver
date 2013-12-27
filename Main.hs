@@ -1,90 +1,71 @@
 -- A tool to pack and unpack .dar files, specification is found in the README.
 
+module Main where
+
 import Control.Applicative
 import Control.Monad
-import Data.Binary
-import Data.Binary.Get          
-import Data.Binary.Put
-import Data.Word
-import qualified Data.ByteString.Lazy as B
 import qualified Data.ByteString.Lazy.Char8 as BC
 import System.Environment
 import System.IO
+import System.Directory
+import System.FilePath
 
-data DarFile = Dar { headerDAR :: DarHeader
-                   , dataDAR :: DataHeader
-                   } 
-
-data DarHeader = DarH { identifyDAR :: B.ByteString 
-                      , majorV :: Word8
-                      , minorV :: Word8
-                      , nodeCount :: Word64
-                      , checksum :: Word32
-                      } deriving (Show)
-                                       
--- Doesn't compare nodeCount or checksum as they're not required.
--- This makes sure the file is a DAR file and is of the right version.
-instance Eq DarHeader where
-  darH1 == darH2 = identifyDAR darH1 == identifyDAR darH2
-                   && majorV darH1 == majorV darH2
-                   && minorV darH1 == minorV darH2
-
-
-data DataHeader = DataH { identifyDATA :: B.ByteString --Should be ".data"
--- not part of spec yet?, lengthDATA :: Word64
-                        , dataNodes :: [DataNode] -- Not sure if this is best?
-                        } deriving (Show)
-
--- Are lenidentifyDNode and lengthDNode actually needed in the data type?
-data DataNode = DataN { identifyDNode :: B.ByteString
-                      , contentDNode :: B.ByteString
-                      } deriving (Show)
-
--- Check the header and .data here?
-getDARFile :: Get DarFile
-getDARFile = do
-  header <- getDARHeader
-  (Dar header) <$> (getDATAHeader $ nodeCount header)  
-
-getDARHeader :: Get DarHeader
-getDARHeader = DarH <$> getLazyByteString 3 <*> getWord8 <*> getWord8
-               <*> getWord64le <*> getWord32le
-
--- Check that the dataHeader ".data" exists.
-getDATAHeader :: Word64 -> Get DataHeader
-getDATAHeader nodeN = DataH <$> getLazyByteString 5 <*> (sequence $ getDATANodes nodeN)
-
-getDATANodes :: Word64 -> [Get DataNode]
-getDATANodes nodeN = case nodeN == 0 of
-  True -> []
-  False -> getDATANode : (getDATANodes $ nodeN - 1)
-  
-getDATANode :: Get DataNode
-getDATANode = do  
-  nName <- getWord32le >>= getLazyByteString . fromIntegral
-  nData <- getWord64le >>= getLazyByteString . fromIntegral 
-  return $ DataN nName nData
-
-defaultDarHeader = DarH { identifyDAR = BC.pack "DAR"
-                        , majorV = 6
-                        , minorV = 0
-                        -- , nodeCount = cDAR_NODE_COUNT_TEST 
-                        , checksum = 0
-                        }
+import Data.DarTypes
 
 main = do
-  args <- concat <$> getArgs -- Just so it compiles.
-  darfile <- B.readFile args
+  (option:darFile:args) <- getArgs
+  
+  case option of
+    "help" -> putStrLn helpText
+    "test" -> BC.writeFile (concat args) $ putDARFile testDNodes
+    "pack" -> packDar darFile args
+    "unpack" -> unpackDar darFile
+    "dump" -> dumpDar darFile
+    _ -> putStrLn "Invalid option, use 'help' for a list of options."
 
-  let decodedDar = runGet getDARFile darfile
+testDNodes = [ DataN (BC.pack "test") (BC.pack "This is the data section.\nHello again!")
+             , DataN (BC.pack "hello") (BC.pack "A hello test, whats that?")
+             ]
 
-  case (headerDAR decodedDar == defaultDarHeader) of
-    True -> putStrLn $ args ++ " is TRUE DAR file.\n\nList of DataNodes:"
-            ++ (concatMap (\(DataN n d) -> unwords ["\nDataNode name:", BC.unpack n
-                                                   , "\nDataLenght:", show $ B.length d
-                                                   , "\nData:", BC.unpack d, "\n"])
-                $ dataNodes $ dataDAR decodedDar)
-    False -> putStrLn $ args ++ " is FALSE DAR file, .data block possibly corrupt."
+helpText = unwords [ "Options:\n"
+                   , "help : For this help text.\n"
+                   , "pack <DAR file> <list of files>"
+                   , ": packs the files into a named DAR file."
+                   , "To pack the contents of a directory replace"
+                   , "unpack <DAR file> : unpack the files stored in the DAR file.\n"
+                   , "dump <DAR file>"
+                   , " : prints the DataNodes of the DAR file to the screen.\n"]
 
+dumpDar :: FilePath -> IO ()
+dumpDar dFile = do
+  darfile <- BC.readFile dFile
 
+  case getDARFile darfile of 
+    Right dNodes -> putStrLn $ dFile ++ " is TRUE DAR file.\nContains:\n\n"
+                    ++ (concatMap (\d -> (BC.unpack $ identifyDNode d) ++ " \n"
+                                      ++ (BC.unpack $ contentDNode d) ++ "\n\n") dNodes)
+  
+    Left msg -> putStrLn $ dFile ++ " has an error:\n" ++ msg
 
+packDar :: FilePath -> [FilePath] -> IO ()
+packDar dFile files@(d:_) = do
+  dirExists <- (length files == 1 &&) <$> doesDirectoryExist d
+  if dirExists
+    then do
+--    putStrLn "Getting files from directory."
+    packDar dFile =<< (map (combine d)) <$>
+      filter (`notElem` [".", ".."]) <$> getDirectoryContents d
+    else do
+--    putStrLn $ "Packing '" ++ (unwords files) ++ "' into " ++  dFile
+    dContents <- mapM BC.readFile files
+    let dNodes = map (\(n,d) -> DataN (BC.pack n) d) $ zip (map takeFileName files) dContents
+    BC.writeFile dFile $ putDARFile dNodes
+
+unpackDar :: FilePath -> IO ()
+unpackDar dFile = do
+  darfile <- BC.readFile dFile
+
+  case getDARFile darfile of
+    Right dNodes -> mapM_ (\x -> BC.writeFile (BC.unpack $ identifyDNode x) $ contentDNode x) dNodes 
+
+    Left msg -> putStrLn $ dFile ++ " has an error:\n" ++ msg
