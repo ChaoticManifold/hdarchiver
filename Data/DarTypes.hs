@@ -3,18 +3,18 @@
 -- Future Plans:
 -- Function to convert associated list or a map to a [DataNode]
 -- Make a typeclass for the above, so users can make anthing into DataNodes
--- Add the index
 -- Get single named DataNode
 -- Return DataNodes as a map
 -- Or maybe make another typeclass for this
 -- Append single DataNode
--- DataNode should have size parameters for performace reasons
 -- Make things strict where nessesary
 
 module Data.DarTypes
        (
-         DarFile (..), DarHeader (..), DataHeader (..), DataNode (..),
-         getDARFile, putDARFile
+         DarFile (..), DarHeader (..),
+         IndexHeader (..), IndexNode (..),
+         DataHeader (..), DataNode (..),
+         getDARFile, getDARIndex, putDARFile
        ) where
                 
 import Control.Applicative
@@ -26,28 +26,41 @@ import qualified Data.ByteString.Lazy.Char8 as BC
 import Data.Word
 
 data DarFile = Dar { headerDAR :: DarHeader
+                   , indexDAR :: IndexHeader
                    , dataDAR :: DataHeader
                    } 
 
-data DarHeader = DarH { identifyDAR :: BC.ByteString 
+data DarHeader = DarH { identifyDAR :: BC.ByteString -- 3 bytes 
                       , majorV :: Word8
                       , minorV :: Word8
                       , nodeCount :: Word64
                       , checksum :: Word32
-                      } deriving (Show)
-                                       
-data DataHeader = DataH { identifyDATA :: BC.ByteString --Should be ".data"
--- not part of spec yet?, lengthDATA :: Word64
-                        , dataNodes :: [DataNode] -- Not sure if this is best?
+                      } deriving (Show) -- total: 17 bytes
+
+data IndexHeader = IndexH { identifyINDEX :: BC.ByteString --Should be ".index" 6 bytes
+                          , indexNodes :: [IndexNode]
+                          } deriving (Show)
+
+data IndexNode = IndexN { identifyINodeLen :: Word32 -- 4 bytes
+                        , identifyINode :: BC.ByteString -- (1 to maxBound Word32) bytes
+                        , nodePosition :: Word64 -- 8 bytes
                         } deriving (Show)
 
--- Are lenidentifyDNode and lengthDNode actually needed in the data type?
-data DataNode = DataN { identifyDNode :: BC.ByteString
-                      , contentDNode :: BC.ByteString
+data DataHeader = DataH { identifyDATA :: BC.ByteString --Should be ".data" 5 bytes
+                        , dataNodes :: [DataNode] 
+                        } deriving (Show)
+
+data DataNode = DataN { identifyDNodeLen :: Word32 -- 4 bytes
+                      , identifyDNode :: BC.ByteString -- (1 to maxBound Word32) bytes
+                      , contentDNodeLen :: Word64 -- 8 bytes
+                      , contentDNode :: BC.ByteString -- (1 to maxBound Word64) bytes
                       } deriving (Show)
 
 -- A standard DAR file for comparison perposes.
-defaultDar = Dar (DarH (BC.pack "DAR") 6 0 0 0) (DataH (BC.pack ".data") []) 
+defaultDar = Dar 
+             (DarH (BC.pack "DAR") 6 0 0 0)
+             (IndexH (BC.pack ".index") [])
+             (DataH (BC.pack ".data") [])
 
 --
 -- **************************************************
@@ -72,8 +85,24 @@ getDARFile bs =
 getDARFile' :: Get DarFile
 getDARFile' = do
   header <- getDARHeader
-  (Dar header) <$> (getDATAHeader $ nodeCount header)  
+  (Dar header (indexDAR defaultDar)) <$> (getDATAHeader $ nodeCount header)
 
+getDARIndex :: BC.ByteString -> Either String [IndexNode]
+getDARIndex bs =
+  case (runGetOrFail getDARIndex' bs) of
+    Left (leftBs, pos, msg) -> Left $ msg ++ " at " ++ (show pos) ++ " bytes"
+                               ++ (if BC.null leftBs
+                                   then " and no more bytes to consume."
+                                   else " and " ++ (show $ BC.length leftBs)
+                                        ++ " bytes left to consume.")
+    Right (_, _, val) -> Right $ indexNodes . indexDAR $ val
+
+getDARIndex' :: Get DarFile
+getDARIndex' = do
+  header <- getDARHeader
+  (Dar header) <$> (getINDEXHeader $ nodeCount header)
+    <*> (pure $ dataDAR defaultDar)
+    
 getDARHeader :: Get DarHeader
 getDARHeader = do
   let header = headerDAR defaultDar
@@ -91,6 +120,22 @@ getDARHeader = do
   -- Get the number of DataNodes and the checksum.
   (DarH dar maV miV) <$> getWord64le <*> getWord32le
 
+getINDEXHeader :: Word64 -> Get IndexHeader
+getINDEXHeader nodeNum = do
+  name <- getLazyByteString 6
+  when (name /= (identifyINDEX $ indexDAR defaultDar))
+    (fail "No index header found in DAR file")
+
+  (IndexH name) <$> replicateM (fromIntegral nodeNum) getINDEXNode
+
+getINDEXNode :: Get IndexNode
+getINDEXNode = do
+  nNameLen <- getWord32le
+  nName <- getLazyByteString $ fromIntegral nNameLen
+  nPos <- getWord64le
+
+  return $ IndexN nNameLen nName nPos
+
 getDATAHeader :: Word64 -> Get DataHeader
 getDATAHeader nodeNum = do
   -- Get 5 bytes that identify this as the data header of a DAR file and check it.
@@ -103,12 +148,12 @@ getDATAHeader nodeNum = do
 
 getDATANode :: Get DataNode
 getDATANode = do
-  -- Get the length of the DataNode's name and get that many bytes.
-  nName <- getLazyByteString . fromIntegral =<< getWord32le
-  -- Get the length of the DataNode's data and get that many bytes.
-  nData <- getLazyByteString . fromIntegral =<< getWord64le
+  nNameLen <- getWord32le
+  nName <- getLazyByteString $ fromIntegral nNameLen
+  nDataLen <- getWord64le
+  nData <- getLazyByteString $ fromIntegral nDataLen
   
-  return $ DataN nName nData
+  return $ DataN nNameLen nName nDataLen nData
 
 --
 -- **************************************************
@@ -120,6 +165,7 @@ putDARFile = runPut . putDARFile'
 putDARFile' :: [DataNode] -> Put
 putDARFile' nodes = do
   putDARHeader . fromIntegral . length $ nodes
+  putINDEXHeader nodes
   putDATAHeader nodes
 
 putDARHeader :: Word64 -> Put
@@ -131,6 +177,26 @@ putDARHeader nodeN = do
   putWord64le nodeN                      -- Number of DataNodes in the DAR file.
   putWord32le 0                          -- Checksum (not used).
 
+putINDEXHeader :: [DataNode] -> Put
+putINDEXHeader nodes = do
+  let nSizeAndName = reverse . fst . foldl (\(acc,p) (i,x) -> ((i,p):acc, x)) ([],0)
+                     $ zip
+                     (map (\x -> (identifyDNodeLen x, identifyDNode x) ) nodes)
+                     (map getsize nodes)
+      getsize x = 4 + (fromIntegral $ identifyDNodeLen x)
+                  + 8 + (fromIntegral $ contentDNodeLen x)
+      preSize = 6 + (sum $ map (\x -> 4 + (fromIntegral $ identifyDNodeLen x) + 8) nodes)
+                + 17 -- DAR header size
+
+  putLazyByteString $ identifyINDEX $ indexDAR defaultDar
+  mapM_ (flip putINDEXNode preSize) nSizeAndName
+
+putINDEXNode :: ((Word32, BC.ByteString),Word64) -> Word64 -> Put
+putINDEXNode ((nl, n), s) preS = do
+  putWord32le  nl
+  putLazyByteString n
+  putWord64le $ preS + s
+
 putDATAHeader :: [DataNode] -> Put
 putDATAHeader nodes = do
   putLazyByteString . identifyDATA $ dataDAR defaultDar -- 5 bytes start data block.
@@ -139,11 +205,11 @@ putDATAHeader nodes = do
 putDATANode :: DataNode -> Put
 putDATANode node = do
   -- Length of the DataNode's name in bytes.
-  putWord32le . fromIntegral . BC.length $ identifyDNode node
+  putWord32le . fromIntegral $ identifyDNodeLen node
   -- The DataNode's name.
   putLazyByteString $ identifyDNode node
 
   -- Length of the DataNode's data in bytes.
-  putWord64le . fromIntegral . BC.length $ contentDNode node
+  putWord64le . fromIntegral $ contentDNodeLen node
   -- The DataNode's data.
   putLazyByteString $ contentDNode node
