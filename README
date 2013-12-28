@@ -8,13 +8,6 @@ All bytes are unsigned unless otherwise specified.
 ..NodeCount = [X] //Number of nodes. 8 bytes.
 ..Checksum = [X] //Checksum of all the header data, used to verify the integrity of the header. 4 bytes.
 
-[Data Block]
-..Block header = ".data" //Used to identify the file. 5 chars (utf-8)
-..[For each node]
-....Node name //Used to select the node. Arbitrary length utf-8 string with length prefixed as a 4 byte integer.
-....Data length //Size of the node. 8 bytes
-....Data //Byte array of the data the node contains. X bytes
-
 [Index Block]
 ..Index block header = ".index" // Used to identify the block. 6 utf-8 chars
 ..Length //How many entries are there in the index? 8 bytes
@@ -22,4 +15,9 @@ All bytes are unsigned unless otherwise specified.
 ....Name //Name of the node. Same as node name ^
 ....Position //It's position in the file. 8 bytes (Seek position of the node name in file.
 
-IDXPOS = [X] - sizeof(Int64). 8 byte long integer -- I really don't understand this?
+[Data Block]
+..Block header = ".data" //Used to identify the file. 5 chars (utf-8)
+..[For each node]
+....Node name //Used to select the node. Arbitrary length utf-8 string with length prefixed as a 4 byte integer.
+....Data length //Size of the node. 8 bytes
+....Data //Byte array of the data the node contains. X bytes
