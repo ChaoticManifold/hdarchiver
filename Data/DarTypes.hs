@@ -14,7 +14,7 @@ module Data.DarTypes
          DarFile (..), DarHeader (..),
          IndexHeader (..), IndexNode (..),
          DataHeader (..), DataNode (..),
-         getDARFile, getDARIndex, putDARFile
+         getDARFile, getDARIndex, getDARLookup, putDARFile
        ) where
                 
 import Control.Applicative
@@ -23,6 +23,7 @@ import Control.Monad.Loops (unfoldrM)
 import Data.Binary.Get
 import Data.Binary.Put
 import qualified Data.ByteString.Lazy.Char8 as BC
+import Data.List (find)
 import Data.Word
 
 data DarFile = Dar { headerDAR :: DarHeader
@@ -85,7 +86,8 @@ getDARFile bs =
 getDARFile' :: Get DarFile
 getDARFile' = do
   header <- getDARHeader
-  (Dar header (indexDAR defaultDar)) <$> (getDATAHeader $ nodeCount header)
+  (Dar header) <$> (getINDEXHeader $ nodeCount header)
+    <*> (getDATAHeader $ nodeCount header)
 
 getDARIndex :: BC.ByteString -> Either String [IndexNode]
 getDARIndex bs =
@@ -102,6 +104,22 @@ getDARIndex' = do
   header <- getDARHeader
   (Dar header) <$> (getINDEXHeader $ nodeCount header)
     <*> (pure $ dataDAR defaultDar)
+
+getDARLookup :: BC.ByteString -> BC.ByteString -> Either String DataNode
+getDARLookup name bs = 
+  case (runGetOrFail getDARIndex' bs) of
+    Left (leftBs, pos, msg) -> Left $ msg ++ " at " ++ (show pos) ++ " bytes"
+                               ++ (if BC.null leftBs
+                                   then " and no more bytes to consume."
+                                   else " and " ++ (show $ BC.length leftBs)
+                                        ++ " bytes left to consume.")
+    Right (_, _, iNodes) -> do
+      let index = find (\n -> identifyINode n == name) $ indexNodes . indexDAR $ iNodes
+      case index of
+        Nothing -> Left "No DataNode with that name exists."
+        Just iNode -> do
+          let nPos = nodePosition iNode
+          Right $ runGet (skip (fromIntegral nPos) >> getDATANode) bs
     
 getDARHeader :: Get DarHeader
 getDARHeader = do
@@ -178,17 +196,19 @@ putDARHeader nodeN = do
   putWord32le 0                          -- Checksum (not used).
 
 putINDEXHeader :: [DataNode] -> Put
-putINDEXHeader nodes = do
-  let nSizeAndName = reverse . fst . foldl (\(acc,p) (i,x) -> ((i,p):acc, x)) ([],0)
+putINDEXHeader nodes = do            --- here lies the bug ------------------------
+  let nSizeAndName = reverse . fst . foldl (\(acc,p) (i,x) -> ((i,p):acc, p+x)) ([],0)
                      $ zip
                      (map (\x -> (identifyDNodeLen x, identifyDNode x) ) nodes)
                      (map getsize nodes)
       getsize x = 4 + (fromIntegral $ identifyDNodeLen x)
                   + 8 + (fromIntegral $ contentDNodeLen x)
       preSize = 6 + (sum $ map (\x -> 4 + (fromIntegral $ identifyDNodeLen x) + 8) nodes)
-                + 17 -- DAR header size
+                + 17 + 5 -- DAR header, data header - .data
 
   putLazyByteString $ identifyINDEX $ indexDAR defaultDar
+
+-- lol! offset needs to calculate base on size of the previous nodes summed together.
   mapM_ (flip putINDEXNode preSize) nSizeAndName
 
 putINDEXNode :: ((Word32, BC.ByteString),Word64) -> Word64 -> Put
