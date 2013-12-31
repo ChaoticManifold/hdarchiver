@@ -13,15 +13,26 @@ import System.FilePath
 import Data.DarTypes
 
 main = do
-  (option:darFile:args) <- getArgs
-  
-  case option of
-    "help" -> putStrLn helpText
-    "pack" -> packDar darFile args
-    "unpack" -> unpackDar darFile
-    "dump" -> dumpDar darFile
-    "list" -> listDar darFile
-    _ -> putStrLn "Invalid option, use 'help' for a list of options."
+  args <- getArgs
+
+  putStrLn $ unwords args
+
+  let option = head args
+      darFile = head $ tail args
+      otherArgs = tail $ tail args
+
+  if args == [] || option `notElem` posOptions
+    then  putStrLn "Invalid option, use 'help' for a list of options."
+    else
+    case option of
+      "help" -> putStrLn helpText
+      "pack" -> packDar darFile otherArgs
+      "unpack" -> unpackDar darFile
+      "dump" -> dumpDar darFile
+      "list" -> listDar darFile
+      "lookup" -> lookupDar darFile otherArgs -- Look up each arg?
+
+posOptions = ["help", "pack", "unpack", "dump", "list", "lookup"]
 
 helpText = unwords [ "Options:\n"
                    , "help : For this help text.\n"
@@ -32,7 +43,7 @@ helpText = unwords [ "Options:\n"
                    , "dump <DAR file>"
                    , " : prints the DataNodes of the DAR file to the screen.\n"
                    , "list <DAR file> : lists the names of the DataNodes in the DAR file"
-                   ]
+                   , "lookup <DAR file> <DataNode Name> : if the Data Node exsits."]
 
 packDar :: FilePath -> [FilePath] -> IO ()
 packDar dFile files@(dir:_) = do
@@ -53,30 +64,40 @@ unpackDar :: FilePath -> IO ()
 unpackDar dFile = do
   darfile <- BC.readFile dFile
 
-  case getDARFile darfile of
-    Right dNodes -> mapM_ (\x -> BC.writeFile (BC.unpack $ identifyDNode x)
-                                 $ contentDNode x) dNodes 
-
-    Left msg -> putStrLn $ dFile ++ " has an error:\n" ++ msg
+  either
+    (\msg -> hPutStrLn stderr msg)
+    (\dNodes -> mapM_ (\x -> BC.writeFile (BC.unpack $ identifyDNode x)
+                             $ contentDNode x) dNodes)
+    (getDARFile darfile)
 
 dumpDar :: FilePath -> IO ()
 dumpDar dFile = do
   darfile <- BC.readFile dFile
 
-  case getDARFile darfile of 
-    Right dNodes -> putStrLn $ dFile ++ "\n\n"
-                    ++ (concatMap (\d -> (BC.unpack $ identifyDNode d) ++ " \n"
-                                      ++ (BC.unpack $ contentDNode d) ++ "\n\n") dNodes)
-  
-    Left msg -> putStrLn $ dFile ++ " has an error:\n" ++ msg
+  either
+    (\msg -> hPutStrLn stderr msg)
+    (\dNodes -> putStrLn $ dFile ++ "\n\n"
+                ++ (concatMap (\d -> (BC.unpack $ identifyDNode d) ++ "\n"
+                                     ++ (BC.unpack $ contentDNode d) ++ "\n\n") dNodes))
+    (getDARFile darfile)
 
 listDar :: FilePath -> IO ()
 listDar dFile = do
   darfile <- BC.readFile dFile
 
-  case getDARIndex darfile of
-    Right iNodes -> putStrLn $ dFile ++ "\n\n"
-                    ++ (concatMap (\d -> (BC.unpack $ identifyINode d) ++ " \n") iNodes)
+  either
+    (\msg -> hPutStrLn stderr msg)
+    (\iNodes -> putStrLn (concatMap (\d -> (BC.unpack $ identifyINode d) ++
+                                           (show $ nodePosition d) ++ "\n") iNodes))
+    (getDARIndex darfile)
 
-    Left msg -> putStrLn $ dFile ++ " has an error:\n" ++ msg
+lookupDar :: FilePath -> [String] -> IO ()
+lookupDar dFile names = do
+  darfile <- BC.readFile dFile
+
+  mapM_ (\name -> either 
+          (\msg -> hPutStrLn stderr msg)
+          (\dNode -> putStrLn $ (BC.unpack $ identifyDNode dNode) ++ "\n"
+                     ++ (BC.unpack $ contentDNode dNode) ++ "\n")
+          (getDARLookup (BC.pack name) darfile)) names
 
