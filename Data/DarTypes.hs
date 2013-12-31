@@ -119,7 +119,7 @@ getDARLookup name bs =
         Nothing -> Left "No DataNode with that name exists."
         Just iNode -> do
           let nPos = nodePosition iNode
-          Right $ runGet (skip (fromIntegral nPos) >> getDATANode) bs
+          Right $ runGet getDATANode (BC.drop (fromIntegral nPos) bs)
     
 getDARHeader :: Get DarHeader
 getDARHeader = do
