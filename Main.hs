@@ -14,9 +14,7 @@ import Data.DarTypes
 
 main = do
   args <- getArgs
-
-  putStrLn $ unwords args
-
+  
   let option = head args
       darFile = head $ tail args
       otherArgs = tail $ tail args
@@ -87,8 +85,7 @@ listDar dFile = do
 
   either
     (\msg -> hPutStrLn stderr msg)
-    (\iNodes -> putStrLn (concatMap (\d -> (BC.unpack $ identifyINode d) ++
-                                           (show $ nodePosition d) ++ "\n") iNodes))
+    (\iNodes -> putStrLn (concatMap (\d -> (BC.unpack $ identifyINode d) ++ "\n") iNodes))
     (getDARIndex darfile)
 
 lookupDar :: FilePath -> [String] -> IO ()
@@ -96,7 +93,7 @@ lookupDar dFile names = do
   darfile <- BC.readFile dFile
 
   mapM_ (\name -> either 
-          (\msg -> hPutStrLn stderr msg)
+          (\msg -> hPutStrLn stderr $ name ++ " - " ++ msg ++ "\n")
           (\dNode -> putStrLn $ (BC.unpack $ identifyDNode dNode) ++ "\n"
                      ++ (BC.unpack $ contentDNode dNode) ++ "\n")
           (getDARLookup (BC.pack name) darfile)) names
