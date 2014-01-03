@@ -10,7 +10,9 @@ import System.IO
 import System.Directory
 import System.FilePath
 
-import Data.DarTypes
+import Data.Dar.Types
+import Data.Dar.Get
+import Data.Dar.Put
 
 main = do
   args <- getArgs
@@ -20,7 +22,8 @@ main = do
       otherArgs = tail $ tail args
 
   if args == [] || option `notElem` posOptions
-    then  putStrLn "Invalid option, use 'help' for a list of options."
+    then  putStrLn $  "USAGE: hdarchiver <Option> <Arguments...>\n"
+          ++ "Use 'hdarchiver help', for a list of of options."
     else
     case option of
       "help" -> putStrLn helpText
@@ -28,20 +31,20 @@ main = do
       "unpack" -> unpackDar darFile
       "dump" -> dumpDar darFile
       "list" -> listDar darFile
-      "lookup" -> lookupDar darFile otherArgs -- Look up each arg?
+      "lookup" -> lookupDar darFile otherArgs 
 
 posOptions = ["help", "pack", "unpack", "dump", "list", "lookup"]
 
-helpText = unwords [ "Options:\n"
+helpText = unwords [ "USAGE: hdarchiver <Option> <Arguments...>"
+                   , "\nOPTIONS:\n"
                    , "help : For this help text.\n"
-                   , "pack <DAR file> <list of files>"
-                   , ": packs the files into a named DAR file."
-                   , "To pack the contents of a directory replace"
+                   , "pack <DAR file> <list of files...>"
+                   , ": packs a list of files into a named DAR file.\n"
                    , "unpack <DAR file> : unpack the files stored in the DAR file.\n"
-                   , "dump <DAR file>"
-                   , " : prints the DataNodes of the DAR file to the screen.\n"
-                   , "list <DAR file> : lists the names of the DataNodes in the DAR file"
-                   , "lookup <DAR file> <DataNode Name> : if the Data Node exsits."]
+                   , "dump <DAR file> : prints the contents of each DataNode to\n"
+                   , "\t\t   the screen, each node seperated by an empty line.\n"
+                   , "list <DAR file> : lists the names of the DataNodes in the DAR file.\n"
+                   , "lookup <DAR file> <DataNode names...> : if the Data Node exsits."]
 
 packDar :: FilePath -> [FilePath] -> IO ()
 packDar dFile files@(dir:_) = do
