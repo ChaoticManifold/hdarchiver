@@ -1,25 +1,25 @@
-The Dar specification.
-All bytes are unsigned unless otherwise specified.
+The DAR file specification.
 
-[Header block]
+[Header block] // Total size 17 bytes.
 ..Magic (ID) = 'DAR' //Used to identify the file. 3 chars (UTF-8)
-..MajorVersion = 6 //If this fails a version check, reject the file. 1 byte
-..MinorVersion = 0 //If this fails a version check, warn the user. 1 byte
-..NodeCount = [X] //Number of nodes. 8 bytes.
-..Checksum = [X] //Checksum of all the header data, used to verify the integrity of the header. 4 bytes.
+..MajorVersion = x //If this fails a version check, reject the file. uint8 - 1 byte
+..MinorVersion = x //If this fails a version check, warn the user. uint8 - 1 byte
+..NodeCount = x //Number of nodes. uint64 - 8 bytes.
+..Checksum = x //Checksum of all the header data, used to verify the integrity of the header. uint32 - 4 bytes.
 
-[Data Block]
+
+[Index Block] // Total 6 + (sum [index node sizes])
+..Index block header = ".index" // Used to identify the block. 6 utf-8 chars
+..[For each node]
+....NameLength // The length of the name in bytes. uint32 - 4 bytes
+....Name //Name of the node. utf-8 string. NameLength bytes
+....Position // Seek position of the start of this node's DataNode in file. uint64 - 8 bytes
+
+
+[Data Block] // Total 5 + (sum [data node sizes])
 ..Block header = ".data" //Used to identify the file. 5 chars (utf-8)
 ..[For each node]
-....Node name //Used to select the node. Arbitrary length utf-8 string with length prefixed as a 4 byte integer.
-....Data length //Size of the node. 8 bytes
-....Data //Byte array of the data the node contains. X bytes
-
-[Index Block]
-..Index block header = ".index" // Used to identify the block. 6 utf-8 chars
-..Length //How many entries are there in the index? 8 bytes
-..[For each node]
-....Name //Name of the node. Same as node name ^
-....Position //It's position in the file. 8 bytes (Seek position of the node name in file.
-
-IDXPOS = [X] - sizeof(Int64). 8 byte long integer -- I really don't understand this?
+....NameLength = x // The length of the name in bytes. uint32 - 4 bytes
+....Name = x       //Name of the node. utf-8 string. NameLength bytes
+....DataLength = x //Size of the node. uint64 - 8 bytes
+....Data = x       // ByteString of the data the node contains. DataLenght bytes

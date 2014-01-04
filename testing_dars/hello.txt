@@ -1,5 +1,0 @@
-Hello, my name is Jonathan.
-Hi! this is a newline.
-And another line.
-
-The nuclear launch codes were too easy to brute force :D.
