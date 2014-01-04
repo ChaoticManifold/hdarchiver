@@ -8,7 +8,6 @@ import Control.Monad
 import Data.Binary.Get
 import qualified Data.ByteString.Lazy.Char8 as BC
 import Data.List (find)
-import Data.Tuple.Curry (uncurryN)
 import Data.Word
 
 import Data.Dar.Types
@@ -62,7 +61,7 @@ getDARLookup name bs =
       let index = find ((==) name . identifyINode) $ indexNodes . indexDAR $ iNodes
       case index of
         Nothing -> Left "No DataNode with that name exists."
-        Just iNzode -> do
+        Just iNode -> do
           let nPos = nodePosition iNode
           Right $ runGet getDATANode (BC.drop (fromIntegral nPos) bs)
     
