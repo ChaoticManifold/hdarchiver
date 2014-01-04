@@ -18,9 +18,9 @@ import Data.Dar.Types
 -- Functions for getting a DAR file and its DataNodes from a ByteString.
 
 -- 
-formatError leftBs pos msg = Left $ msg ++ " at " ++ show pos ++ " bytes"
-                             ++ " and " ++ (show $ BC.length leftBs)
-                             ++ " bytes left to consume."
+formatError (leftBs, pos, msg) = Left $ msg ++ " at " ++ show pos ++ " bytes"
+                                 ++ " and " ++ (show $ BC.length leftBs)
+                                 ++ " bytes left to consume."
 
 -- Tries to gets the DataNodes from a DAR file (in ByteString from),
 -- If the DAR file can't be parsed an error message is created that
@@ -30,7 +30,7 @@ getDARFile :: BC.ByteString -> Either String [DataNode]
 getDARFile bs = 
   case (runGetOrFail getDARFile' bs) of
     -- Combines all the error details in to a single message.
-    Left err -> uncurryN formatError err
+    Left err -> formatError err
     -- Extract the DataNodes from the DAR file.doubleListdoubleList
     Right (_, _, val) -> Right $ dataNodes . dataDAR $ val
 
@@ -44,7 +44,7 @@ getDARFile' = do
 getDARIndex :: BC.ByteString -> Either String [IndexNode]
 getDARIndex bs =
   case (runGetOrFail getDARIndex' bs) of
-    Left err -> uncurryN formatError err
+    Left err -> formatError err
     Right (_, _, val) -> Right $ indexNodes . indexDAR $ val
 
 getDARIndex' :: Get DarFile
@@ -57,12 +57,12 @@ getDARIndex' = do
 getDARLookup :: BC.ByteString -> BC.ByteString -> Either String DataNode
 getDARLookup name bs = 
   case (runGetOrFail getDARIndex' bs) of
-    Left err -> uncurryN formatError err
+    Left err -> formatError err
     Right (_, _, iNodes) -> do
       let index = find ((==) name . identifyINode) $ indexNodes . indexDAR $ iNodes
       case index of
         Nothing -> Left "No DataNode with that name exists."
-        Just iNode -> do
+        Just iNzode -> do
           let nPos = nodePosition iNode
           Right $ runGet getDATANode (BC.drop (fromIntegral nPos) bs)
     
