@@ -47,6 +47,7 @@ helpText = unwords [ "USAGE: hdarchiver <Option> <Arguments...>"
                    , "lookup <DAR file> <DataNode names...> : if the Data Node exsits."]
 
 packDar :: FilePath -> [FilePath] -> IO ()
+packDar _ [] = hPutStrLn stderr "No files specified for packing."
 packDar dFile files@(dir:_) = do
   dirExists <- (length files == 1 &&) <$> doesDirectoryExist dir
   if dirExists
