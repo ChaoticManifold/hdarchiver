@@ -1,6 +1,7 @@
 module Data.Dar.Put
        (
-         putDARFile, calcINDEXHeader
+         putDARFile, putDARHeader, putINDEXHeader, calcINDEXHeader,
+         putINDEXNode, putDATANode
        ) where
 
 import Data.Binary.Put
@@ -18,12 +19,18 @@ putDARFile = runPut . putDARFile'
 
 putDARFile' :: [DataNode] -> Put
 putDARFile' nodes = do
+  let index = calcINDEXHeader              
+              (map identifyDNode nodes)    
+              (map identifyDNodeLen nodes) 
+              (map contentDNodeLen nodes)  
+
   putDARHeader . fromIntegral . length $ nodes
-  putINDEXHeader nodes
+  putINDEXHeader index
   putDATAHeader nodes
 
 putDARHeader :: Word64 -> Put
 putDARHeader nodeN = do
+  
   let header = headerDAR defaultDar
   putLazyByteString $ identifyDAR header -- 3 bytes that identify this as a DAR file.
   putWord8 $ majorV header               -- Major Version of the DAR file.
@@ -31,8 +38,8 @@ putDARHeader nodeN = do
   putWord64le nodeN                      -- Number of DataNodes in the DAR file.
   putWord32le 0                          -- Checksum (not used).
 
-putINDEXHeader :: [DataNode] -> Put
-putINDEXHeader nodes = do
+putINDEXHeader :: IndexHeader -> Put
+putINDEXHeader iNodes = do
   -- let nSizeAndName = reverse . fst . foldl (\(acc,p) (i,x) -> ((i,p):acc, p+x)) ([],0)
   --                    $ zip
   --                    (map (\x -> (identifyDNodeLen x, identifyDNode x) ) nodes)
@@ -45,22 +52,16 @@ putINDEXHeader nodes = do
   --     -- offset (8 bytes)). Total 28 bytes + ()
   --     preSize = 28 + (sum $ map ((+) 12 . fromIntegral . identifyDNodeLen) nodes)
 
-  -- putLazyByteString . identifyINDEX $ indexDAR defaultDar
-  -- mapM_ (flip putINDEXNode preSize) nSizeAndName
-  let index = calcINDEXHeader
-              (map identifyDNode nodes)
-              (map identifyDNodeLen nodes)
-              (map contentDNodeLen nodes)
-
-  putLazyByteString $ identifyINDEX index
-  mapM_ putINDEXNode $ indexNodes index
+  putLazyByteString $ identifyINDEX iNodes
+  mapM_ putINDEXNode $ indexNodes iNodes
 
 -- Calculates the index and offsets for DataNodes
 calcINDEXHeader :: [BC.ByteString] -> [Word32] -> [Word64] -> IndexHeader
 calcINDEXHeader names nameLens dataSizes = IndexH
                                            (identifyINDEX $ indexDAR defaultDar)
                                            iNodes
-  where --nameLens = map (fromIntegral . BC.length) names
+  where -- Offsets needs to know about the header for each data Node
+        -- 4 bytes, nameLen bytes, 8 bytes
         sizeBeforeData = 28 + (sum $ map ((+) 12 . fromIntegral) nameLens)
         offsets = reverse . fst $
                   foldr (\off (acc,prevOff) -> (prevOff:acc, prevOff + off))

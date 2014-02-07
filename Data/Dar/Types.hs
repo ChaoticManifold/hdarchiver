@@ -27,7 +27,7 @@ data IndexHeader = IndexH { identifyINDEX :: ByteString --Should be ".index" 6 b
 
 data IndexNode = IndexN { identifyINodeLen :: Word32  -- 4 bytes
                         , identifyINode :: ByteString -- (1 to maxBound Word32) bytes
-                        , nodePosition :: Word64      -- 8 bytes
+                        , nodePosition :: Word64      -- 8 bytes ??? Int64 ???
                         } 
 
 data DataHeader = DataH { identifyDATA :: ByteString -- Should be ".data" 5 bytes

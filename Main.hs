@@ -5,10 +5,12 @@ module Main where
 import Control.Applicative
 import Control.Monad
 import qualified Data.ByteString.Lazy.Char8 as BC
+import Data.Binary.Put
 import System.Environment
 import System.IO
 import System.Directory
 import System.FilePath
+import Data.List (zip4)
 
 import Data.Dar.Types
 import Data.Dar.Get
@@ -54,13 +56,43 @@ packDar dFile files@(dir:_) = do
     then packDar dFile =<< (map (combine dir)) <$>
          filter (`notElem` [".", ".."]) <$> getDirectoryContents dir
     else do
-    dContents <- mapM BC.readFile files
 
-    let dNodes = map mkdNode $ zip (map (BC.pack . takeFileName) files) dContents
-        mkdNode (n, d) = DataN (fromIntegral $ BC.length n) n
-                         (fromIntegral $ BC.length d) d
+    darfile <- openBinaryFile dFile WriteMode
+    fileHandles <- mapM (flip openFile ReadMode) files    -- lookup doesn't work 
+    fileSizes <- mapM hFileSize fileHandles
 
-    BC.writeFile dFile $ putDARFile dNodes
+    let fileNames = map takeFileName files
+        filesByteStr = map BC.pack fileNames
+        filesNameLen = map BC.length filesByteStr
+        index = calcINDEXHeader filesByteStr
+                (map fromIntegral filesNameLen)
+                (map fromIntegral fileSizes)
+        allHeaders = do putDARHeader . fromIntegral $ length fileNames
+                        putINDEXHeader index
+                        putLazyByteString . identifyDATA $ dataDAR defaultDar
+    print $ getOffsets index
+    print fileSizes
+
+    BC.hPut darfile $ runPut allHeaders
+
+    mapM_ (\(nl,n,fs,fh) -> do
+              fcontents <- BC.hGetContents fh
+              let dNode = DataN (fromIntegral nl) n (fromIntegral fs) fcontents
+              BC.hPut darfile . runPut $ putDATANode dNode
+              hClose fh
+          ) $ zip4 filesNameLen filesByteStr fileSizes fileHandles
+
+    hClose darfile
+   
+fileSize :: FilePath -> IO Integer
+fileSize file = do
+                hfile <- openFile file ReadMode
+                sfile <- hFileSize hfile
+                hClose hfile
+                return sfile
+                
+getOffsets :: IndexHeader -> [Int]
+getOffsets index = map (fromIntegral . nodePosition) $ indexNodes index
 
 unpackDar :: FilePath -> IO ()
 unpackDar dFile = do
